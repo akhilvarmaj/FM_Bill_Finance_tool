@@ -1,0 +1,10 @@
+import "dotenv/config";
+import { spawnSync } from "node:child_process";
+const source = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
+if (!source) throw new Error("Configure DATABASE_URL or DIRECT_URL privately.");
+const url = new URL(source);
+if (url.hostname.endsWith(".neon.tech")) url.hostname = url.hostname.replace("-pooler.", ".");
+const result = spawnSync(process.execPath, ["node_modules/prisma/build/index.js", "migrate", "deploy"], { encoding: "utf8", env: { ...process.env, DATABASE_URL: url.toString() } });
+if (result.status === 0) console.log("Database migrations are up to date.");
+else console.error("Migration failed.", [...new Set(`${result.stdout ?? ""}${result.stderr ?? ""}`.match(/\bP\d{4}\b/g) ?? [])].join(", "));
+process.exitCode = result.status ?? 1;

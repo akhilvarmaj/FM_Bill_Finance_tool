@@ -1,0 +1,76 @@
+import "dotenv/config";
+import { randomUUID } from "node:crypto";
+import { PrismaClient } from "@prisma/client";
+import { expect, it, vi } from "vitest";
+const state = vi.hoisted(() => ({ transaction: null as unknown }));
+vi.mock("server-only", () => ({}));
+vi.mock("@/lib/db", () => ({ db: new Proxy({}, { get: (_target, key) => key === "$transaction" ? (operation: (transaction: unknown) => unknown) => operation(state.transaction) : (state.transaction as Record<string | symbol, unknown>)[key] }) }));
+import { accessibleInvoice, cancelInvoice, createInvoice, recordPayment } from "./service";
+import { invoicePdf } from "./pdf";
+import { instituteSettings } from "@/lib/management/service";
+import { PDFDocument } from "pdf-lib";
+import { requestDelivery, retryDelivery } from "@/lib/notifications/delivery";
+
+it.skipIf(process.env.RUN_DB_INTEGRATION !== "1")("verifies financial flows and parent isolation on PostgreSQL with rollback", async () => {
+  const client = new PrismaClient(); const rollback = new Error("ROLLBACK_VERIFICATION");
+  try {
+    await client.$transaction(async transaction => {
+      state.transaction = transaction;
+      const key = randomUUID();
+      const admin = await transaction.user.create({ data: { email: `${key}@example.invalid`, name: "Rollback admin", passwordHash: "unusable", roleName: "ADMIN", status: "APPROVED" } });
+      const user = { id: admin.id, role: "ADMIN" as const, status: "APPROVED" as const, permissions: [] };
+      const parentUser = await transaction.user.create({ data: { email: `parent-${key}@example.invalid`, name: "Rollback parent", passwordHash: "unusable", roleName: "PARENT", status: "APPROVED" } });
+      const parent = await transaction.parent.create({ data: { userId: parentUser.id, name: "Rollback parent", mobile: "9999999999", address: "Rollback verification address" } });
+      const course = await transaction.course.create({ data: { name: key, duration: 6, monthlyFee: 100, fullFee: 600 } });
+      const student = await transaction.student.create({ data: { studentCode: key, name: "Rollback student", parentId: parent.id } });
+      const enrollment = await transaction.enrollment.create({ data: { studentId: student.id, courseId: course.id, enrollmentDate: new Date("2026-09-01"), paymentPlan: "MONTHLY", fee: 100, scholarship: 10, discount: 5 } });
+      const input = { enrollmentId: enrollment.id, period: "2026-09", invoiceDate: "2026-09-01", dueDate: "2026-09-10", gross: "100", scholarship: "10", discount: "5", paid: "0", mode: "UPI", reference: "", requestKey: randomUUID() };
+      const invoice = await createInvoice(user, input);
+      const loaded = await accessibleInvoice(user, invoice.id);
+      expect(loaded.total.toString()).toBe("85"); expect(loaded.number).toMatch(/-2026-\d+$/);
+      const pdf = await PDFDocument.load(await invoicePdf(loaded, await instituteSettings()));
+      expect(pdf.getPageCount()).toBeGreaterThan(0);
+      expect(pdf.getPage(0).getWidth()).toBeCloseTo(595.28);
+      expect(pdf.getPage(0).getHeight()).toBeCloseTo(841.89);
+      expect(pdf.getTitle()).toBe(loaded.number);
+      await expect(createInvoice(user, input)).rejects.toMatchObject({ status: 409 });
+      await expect(createInvoice(user, { ...input, period: "2027-03" })).rejects.toMatchObject({ status: 400 });
+      await expect(createInvoice(user, { ...input, invoiceDate: "2026-08-31" })).rejects.toMatchObject({ status: 400 });
+      const parentActor = { id: parentUser.id, role: "PARENT" as const, status: "APPROVED" as const, permissions: [] };
+      expect((await accessibleInvoice(parentActor, invoice.id)).id).toBe(invoice.id);
+      await expect(accessibleInvoice({ ...parentActor, id: "another-parent" }, invoice.id)).rejects.toMatchObject({ status: 404 });
+      await expect(createInvoice(parentActor, input)).rejects.toMatchObject({ status: 403 });
+      await expect(recordPayment({ ...user, role: "STAFF" }, invoice.id, {})).rejects.toMatchObject({ status: 403 });
+      const payment = { amount: "25", mode: "UPI", reference: "verification", paidAt: "2026-09-01", requestKey: randomUUID() };
+      const first = await recordPayment(user, invoice.id, payment);
+      expect((await recordPayment(user, invoice.id, payment)).id).toBe(first.id);
+      await expect(recordPayment(user, invoice.id, { ...payment, amount: "61", requestKey: randomUUID() })).rejects.toMatchObject({ status: 400 });
+      await recordPayment(user, invoice.id, { ...payment, amount: "60", requestKey: randomUUID() });
+      await expect(cancelInvoice(user, invoice.id, { reason: "Verification" })).rejects.toMatchObject({ status: 400 });
+      const next = await createInvoice(user, { ...input, period: "2026-10", requestKey: randomUUID() });
+      await cancelInvoice(user, next.id, { reason: "Rollback cancellation verification" });
+      expect((await accessibleInvoice(user, next.id)).cancelledAt).not.toBeNull();
+      const replacement = await createInvoice(user, { ...input, period: "2026-10", requestKey: randomUUID() });
+      expect(replacement.id).not.toBe(next.id);
+      await transaction.$executeRawUnsafe('SAVEPOINT financial_guard');
+      await expect(transaction.payment.update({ where: { id: first.id }, data: { reference: "changed" } })).rejects.toThrow();
+      await transaction.$executeRawUnsafe('ROLLBACK TO SAVEPOINT financial_guard');
+      expect(await transaction.auditLog.count({ where: { entityId: invoice.id } })).toBe(3);
+      const fullCourse = await transaction.course.create({ data: { name: `${key}-full`, duration: 3, monthlyFee: 100, fullFee: 300 } });
+      const fullEnrollment = await transaction.enrollment.create({ data: { studentId: student.id, courseId: fullCourse.id, enrollmentDate: new Date("2026-09-01"), paymentPlan: "ONE_TIME", fee: 300, scholarship: 0, discount: 0 } });
+      const fullInput = { ...input, enrollmentId: fullEnrollment.id, gross: "300", scholarship: "0", discount: "0", requestKey: randomUUID() };
+      const fullInvoice = await createInvoice(user, fullInput);
+      expect((await accessibleInvoice(user, fullInvoice.id)).periodKey).toBe("ONE_TIME");
+      await expect(createInvoice(user, { ...fullInput, period: "2026-10", requestKey: randomUUID() })).rejects.toMatchObject({ status: 409 });
+      const requestKey = randomUUID();
+      const handoff = await requestDelivery(user, invoice.id, { channel: "WHATSAPP", requestKey });
+      expect(handoff.status).toBe("OPENED");
+      expect(handoff.href).toContain("https://wa.me/");
+      expect((await requestDelivery(user, invoice.id, { channel: "WHATSAPP", requestKey })).id).toBe(handoff.id);
+      await expect(requestDelivery(parentActor, invoice.id, { channel: "WHATSAPP", requestKey: randomUUID() })).rejects.toMatchObject({ status: 403 });
+      await expect(retryDelivery(user, handoff.id)).rejects.toMatchObject({ status: 409 });
+      throw rollback;
+    }, { timeout: 60000 });
+  } catch (error) { if (error !== rollback) throw error; }
+  finally { state.transaction = null; await client.$disconnect(); }
+}, 70000);

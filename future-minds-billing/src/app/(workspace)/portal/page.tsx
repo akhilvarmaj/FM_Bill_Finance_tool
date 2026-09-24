@@ -1,0 +1,14 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { Prisma } from "@prisma/client";
+import { currentUser } from "@/lib/auth/http";
+import { db } from "@/lib/db";
+import { formatMoney } from "@/lib/billing/rules";
+export default async function PortalPage({ searchParams }: { searchParams: Promise<{ child?: string }> }) {
+  const user = await currentUser(); if (!user || user.role !== "PARENT") redirect("/account");
+  const children = await db.student.findMany({ where: { parent: { userId: user.id } }, include: { enrollments: { include: { course: true, invoices: { where: { cancelledAt: null }, include: { payments: true } } } } }, orderBy: { name: "asc" } });
+  const requested = (await searchParams).child; const selected = children.find(record => record.id === requested) ?? children[0];
+  const invoices = selected?.enrollments.flatMap(enrollment => enrollment.invoices) ?? [];
+  const total = invoices.reduce((sum, invoice) => sum.plus(invoice.total), new Prisma.Decimal(0)); const paid = invoices.flatMap(invoice => invoice.payments).reduce((sum, payment) => sum.plus(payment.amount), new Prisma.Decimal(0));
+  return <><h1>My Family</h1><p className="muted">{user.name}</p><form className="filter-bar"><label className="field">Child<select name="child" defaultValue={selected?.id}>{children.map(record => <option key={record.id} value={record.id}>{record.name}</option>)}</select></label><button className="secondary-button">View</button></form>{selected ? <><h2>{selected.name}</h2><div className="metrics">{[{ name: "Current invoiced fees", value: total }, { name: "Paid", value: paid }, { name: "Outstanding", value: total.minus(paid) }].map(item => <div className="metric" key={item.name}><span>{item.name}</span><strong className="report-value">{formatMoney(item.value)}</strong></div>)}</div><section className="data-section"><h2>Enrolled courses</h2>{selected.enrollments.map(enrollment => <p key={enrollment.id}>{enrollment.course.name} · {enrollment.paymentPlan} · {formatMoney(enrollment.fee.minus(enrollment.scholarship).minus(enrollment.discount))}</p>)}</section><section className="data-section"><h2>Invoices</h2>{invoices.map(invoice => <p key={invoice.id}><Link href={`/invoices/${invoice.id}`}>{invoice.number}</Link> · {formatMoney(invoice.total)} · Due {invoice.dueDate.toISOString().slice(0, 10)}</p>)}</section></> : <p className="empty-state">No children linked to this account.</p>}<div className="filter-bar"><Link href="/monthly">Upcoming monthly dues</Link><Link href="/payments">Payment history</Link><Link href="/notifications">Notifications</Link></div></>;
+}

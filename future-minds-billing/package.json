@@ -1,0 +1,56 @@
+{
+  "name": "future-minds-billing",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run",
+    "db:generate": "prisma generate",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:admin": "tsx scripts/bootstrap-admin.ts",
+    "worker": "node --conditions=react-server --import tsx scripts/worker.ts",
+    "jobs:run": "node --conditions=react-server --import tsx scripts/worker.ts --once"
+  },
+  "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
+    "@prisma/client": "^6.19.3",
+    "argon2": "^0.45.1",
+    "csv-stringify": "^6.8.3",
+    "dotenv": "^18.0.3",
+    "lucide-react": "^1.48.0",
+    "next": "16.3.6",
+    "nodemailer": "^10.0.10",
+    "pdf-lib": "^1.17.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "recharts": "^3.10.1",
+    "server-only": "^0.0.1",
+    "sharp": "^0.35.4",
+    "to-words": "^7.1.0",
+    "zod": "^4.6.5"
+  },
+  "overrides": {
+    "@prisma/config": {
+      "deepmerge-ts": "^8.0.0"
+    }
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^24.13.6",
+    "@types/nodemailer": "^8.0.2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.6",
+    "prisma": "^6.19.3",
+    "tailwindcss": "^4",
+    "tsx": "^4.23.15",
+    "typescript": "^5",
+    "vitest": "^5.0.1"
+  }
+}

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 480" role="img" aria-labelledby="title">
+  <title id="title">Future Minds F logo</title>
+  <g transform="translate(40 40)">
+    <path fill="#0E2D5B" d="M0 180V90A90 90 0 0 1 90 0H400L332 68Q320 80 300 80H135Q105 80 82 102Z"/>
+    <path fill="#0E2D5B" d="M0 245V232Q0 204 24 180L72 148Q90 130 118 130H312L252 190Q240 202 220 202H58Q12 202 0 245Z"/>
+    <path fill="#FFC107" d="M0 252Q0 202 58 202H110V389Q110 406 96 397L14 345Q0 336 0 324Z"/>
+  </g>
+</svg>
