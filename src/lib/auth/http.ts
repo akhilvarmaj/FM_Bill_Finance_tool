@@ -26,78 +26,49 @@ export async function currentUser() {
   return findSession((await cookies()).get(sessionCookie)?.value);
 }
 
-function parseHost(val: string | null): string | null {
-  if (!val) return null;
-  try {
-    const raw = val.includes("://") ? new URL(val).host : val;
-    return raw.split(",")[0].trim().toLowerCase();
-  } catch {
-    return val.split(",")[0].trim().toLowerCase();
-  }
-}
-
-function parseHostname(val: string | null): string | null {
-  const host = parseHost(val);
-  if (!host) return null;
-  return host.split(":")[0];
-}
-
 export function verifyOrigin(request: Request) {
   const origin = request.headers.get("origin");
-  const referer = request.headers.get("referer");
-  const xfHost = request.headers.get("x-forwarded-host");
-  const rawHost = request.headers.get("host");
-
-  const requestHost = parseHost(xfHost) || parseHost(rawHost);
-  const requestHostname = parseHostname(xfHost) || parseHostname(rawHost);
-
-  const clientTarget = origin || referer;
-  if (!clientTarget) {
-    // If neither origin nor referer is sent (e.g. same-origin direct POST in some browsers), permit
-    return;
-  }
-
-  const clientHost = parseHost(clientTarget);
-  const clientHostname = parseHostname(clientTarget);
-
-  // 1. Exact host match (or without port)
-  if (clientHost && requestHost && (clientHost === requestHost || clientHostname === requestHostname)) {
-    return;
-  }
-
-  // 2. Allowed domain patterns (Vercel, Cloud Run / Google AI Studio preview, localhost)
-  if (clientHostname) {
-    if (
-      clientHostname === "localhost" ||
-      clientHostname === "127.0.0.1" ||
-      clientHostname.endsWith(".vercel.app") ||
-      clientHostname.endsWith(".run.app") ||
-      clientHostname.endsWith(".futuremindsco.in")
-    ) {
-      return;
-    }
-  }
-
-  // 3. Configured APP_URL or VERCEL_URL
+  const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
   const appUrl = process.env.APP_URL;
+
+  if (!origin) {
+    if (appUrl) {
+      throw new AuthError("Cross-site request blocked.", 403);
+    }
+    throw new AuthError("Check server configuration.", 500);
+  }
+
+  if (host) {
+    try {
+      const originHost = new URL(origin).host;
+      const cleanHost = host.split(",")[0].trim();
+      if (originHost === cleanHost || originHost.split(":")[0] === cleanHost.split(":")[0]) {
+        return;
+      }
+    } catch {}
+  }
+
   if (appUrl) {
-    const appHost = parseHost(appUrl);
-    const appHostname = parseHostname(appUrl);
-    if (clientHost === appHost || clientHostname === appHostname) {
-      return;
-    }
+    try {
+      if (new URL(origin).origin === new URL(appUrl).origin) return;
+    } catch {}
+
+    try {
+      const originHostname = new URL(origin).hostname;
+      if (
+        originHostname.endsWith(".vercel.app") ||
+        originHostname.endsWith(".run.app") ||
+        originHostname === "localhost" ||
+        originHostname === "127.0.0.1"
+      ) {
+        return;
+      }
+    } catch {}
+
+    throw new AuthError("Cross-site request blocked.", 403);
   }
 
-  const vercelUrl = process.env.VERCEL_URL;
-  if (vercelUrl) {
-    const vHost = parseHost(vercelUrl);
-    const vHostname = parseHostname(vercelUrl);
-    if (clientHost === vHost || clientHostname === vHostname) {
-      return;
-    }
-  }
-
-  throw new AuthError("Cross-site request blocked.", 403);
+  throw new AuthError("Check server configuration.", 500);
 }
 
 export async function readJson(request: Request): Promise<unknown> {

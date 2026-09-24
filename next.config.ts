@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  output: process.env.VERCEL ? undefined : "standalone",
   poweredByHeader: false,
   allowedDevOrigins: ["*.run.app", "*.vercel.app", "localhost:3000"],
   async headers() {
