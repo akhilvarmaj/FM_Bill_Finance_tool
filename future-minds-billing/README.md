@@ -37,6 +37,25 @@ A user-local Node runtime was installed at `%LOCALAPPDATA%\FutureMinds\runtime\n
 
 For Windows corporate certificates, `NODE_USE_SYSTEM_CA=1` lets Node 24 use the trusted operating-system CA store. Do not disable TLS verification.
 
+## Vercel Deployment
+
+Import the GitHub repository and use these project settings:
+
+- Root Directory: `future-minds-billing`
+- Framework Preset: Next.js
+- Node.js Version: 24.x
+- Install Command: `npm ci`
+- Build Command: `npm run build` (regenerates Prisma Client before Next.js)
+- Output Directory: leave the framework default
+
+Set `DATABASE_URL` privately to your Neon connection string and `APP_URL` to the exact production HTTPS origin, without a trailing slash. Apply them to the appropriate Vercel environment and redeploy after changes. Never upload `.env` or put database credentials in `NEXT_PUBLIC_` variables. Preview deployments require their own matching APP_URL and should use a separate database to avoid production mutations.
+
+The existing Neon database already has migrations and an administrator. A new database needs `npm run db:migrate` and one-time administrator bootstrap from a trusted environment before use. Do not bootstrap administrators or run migrations automatically for every preview build.
+
+Vercel does not run `npm run worker` as a persistent service. Automatic billing and email processing require a separately configured scheduler calling POST `/api/automation/run` with the private bearer `JOB_SECRET`, or an external worker host. SMTP settings are additionally required for email. Manual WhatsApp links do not require a worker.
+
+If deployment fails, inspect the first error in Vercel's Build Logs. A successful local build does not establish that Vercel project settings, secrets, or runtime connectivity are correct.
+
 ## Verification
 
 ```text
