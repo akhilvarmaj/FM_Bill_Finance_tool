@@ -1,0 +1,355 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoleName {
+  ADMIN
+  STAFF
+  PARENT
+}
+
+enum AccountStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  INACTIVE
+}
+
+model Role {
+  name      RoleName @id
+  users     User[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model User {
+  id           String          @id @default(cuid())
+  email        String          @unique
+  name         String
+  mobile       String?
+  passwordHash String
+  roleName     RoleName
+  role         Role            @relation(fields: [roleName], references: [name], onDelete: Restrict)
+  status       AccountStatus   @default(PENDING)
+  permissions  UserPermission[]
+  sessions     Session[]
+  parent       Parent?
+  auditLogs    AuditLog[]
+  invoices     Invoice[] @relation("InvoiceCreator")
+  cancellations Invoice[] @relation("InvoiceCanceller")
+  payments     Payment[]
+  marketingExpenses MarketingExpense[]
+  resolutions ReminderResolution[]
+  deliveries DeliveryAttempt[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([status, roleName])
+}
+
+model Permission {
+  key       String           @id
+  users     UserPermission[]
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+}
+
+model UserPermission {
+  userId        String
+  permissionKey String
+  user          User       @relation(fields: [userId], references: [id], onDelete: Restrict)
+  permission    Permission @relation(fields: [permissionKey], references: [key], onDelete: Restrict)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@id([userId, permissionKey])
+  @@index([permissionKey])
+}
+
+model Parent {
+  id        String   @id @default(cuid())
+  userId    String?  @unique
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  name      String
+  mobile    String
+  whatsapp  String?
+  email     String?
+  address   String
+  city      String?
+  state     String?
+  pincode   String?
+  students  Student[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([mobile])
+}
+
+model Session {
+  tokenHash String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model AuthThrottle {
+  key       String   @id
+  attempts  Int      @default(1)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([expiresAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  action    String
+  entityId  String?
+  details   Json?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+}
+
+enum PaymentPlan {
+  MONTHLY
+  ONE_TIME
+}
+
+model Course {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  description String       @default("")
+  duration    Int
+  monthlyFee  Decimal      @db.Decimal(12, 2)
+  fullFee     Decimal      @db.Decimal(12, 2)
+  active      Boolean      @default(true)
+  batches     Batch[]
+  enrollments Enrollment[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Batch {
+  id          String       @id @default(cuid())
+  name        String
+  courseId    String
+  course      Course       @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  schedule    String
+  active      Boolean      @default(true)
+  enrollments Enrollment[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([courseId, name])
+}
+
+model Student {
+  id          String       @id @default(cuid())
+  studentCode String       @unique
+  name        String
+  dateOfBirth DateTime?    @db.Date
+  grade       String?
+  school      String?
+  parentId    String
+  parent      Parent       @relation(fields: [parentId], references: [id], onDelete: Restrict)
+  active      Boolean      @default(true)
+  enrollments Enrollment[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([name])
+  @@index([parentId])
+}
+
+model Enrollment {
+  id             String      @id @default(cuid())
+  studentId      String
+  student        Student     @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  courseId       String
+  course         Course      @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  batchId        String?
+  batch          Batch?      @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  enrollmentDate DateTime    @db.Date
+  paymentPlan    PaymentPlan
+  fee            Decimal     @db.Decimal(12, 2)
+  scholarship    Decimal     @db.Decimal(12, 2)
+  discount       Decimal     @db.Decimal(12, 2)
+  billingDay     Int         @default(1)
+  dueDay         Int         @default(10)
+  active         Boolean     @default(true)
+  invoices       Invoice[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@unique([studentId, courseId])
+  @@index([courseId])
+  @@index([batchId])
+}
+
+model NumberSequence {
+  key   String @id
+  value Int
+}
+
+enum PaymentMode {
+  UPI
+  CASH
+  CREDIT_CARD
+  DEBIT_CARD
+}
+
+model Invoice {
+  id             String      @id @default(cuid())
+  number         String      @unique
+  enrollmentId   String
+  enrollment     Enrollment  @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+  periodKey      String
+  activeKey      String?     @unique
+  studentName    String
+  studentCode    String
+  parentName     String
+  parentAddress  String
+  courseName     String
+  paymentPlan    PaymentPlan
+  gross          Decimal     @db.Decimal(12, 2)
+  scholarship    Decimal     @db.Decimal(12, 2)
+  discount       Decimal     @db.Decimal(12, 2)
+  total          Decimal     @db.Decimal(12, 2)
+  invoiceDate    DateTime    @db.Date
+  dueDate        DateTime    @db.Date
+  createdById    String
+  createdBy      User        @relation("InvoiceCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  cancelledAt    DateTime?
+  cancelledById  String?
+  cancelledBy    User?       @relation("InvoiceCanceller", fields: [cancelledById], references: [id], onDelete: Restrict)
+  cancelReason   String?
+  items          InvoiceItem[]
+  payments       Payment[]
+  deliveries     DeliveryAttempt[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@index([enrollmentId, periodKey])
+  @@index([invoiceDate])
+  @@index([dueDate])
+  @@index([createdById])
+  @@index([cancelledById])
+}
+
+model InvoiceItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  description String
+  amount      Decimal  @db.Decimal(12, 2)
+  createdAt   DateTime @default(now())
+
+  @@index([invoiceId])
+}
+
+model Payment {
+  id          String      @id @default(cuid())
+  requestKey  String      @unique
+  invoiceId   String
+  invoice     Invoice     @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  amount      Decimal     @db.Decimal(12, 2)
+  mode        PaymentMode
+  reference   String?
+  paidAt      DateTime    @db.Date
+  recordedById String
+  recordedBy  User        @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+  createdAt   DateTime    @default(now())
+
+  @@index([invoiceId])
+  @@index([paidAt, mode])
+  @@index([recordedById])
+}
+
+model SystemSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model MarketingExpense {
+  id        String      @id @default(cuid())
+  date      DateTime    @db.Date
+  category  String
+  description String
+  amount    Decimal     @db.Decimal(12, 2)
+  mode      PaymentMode
+  notes     String
+  addedById String
+  addedBy   User        @relation(fields: [addedById], references: [id], onDelete: Restrict)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@index([date])
+  @@index([addedById])
+}
+
+model MonthlyTarget {
+  month     String   @id
+  amount    Decimal  @db.Decimal(12, 2)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ReminderResolution {
+  key       String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+}
+
+enum DeliveryChannel {
+  EMAIL
+  WHATSAPP
+}
+
+enum DeliveryStatus {
+  QUEUED
+  SENDING
+  ACCEPTED
+  FAILED
+  UNKNOWN
+  OPENED
+}
+
+model DeliveryAttempt {
+  id            String          @id @default(cuid())
+  requestKey    String          @unique
+  invoiceId     String
+  invoice       Invoice         @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  requestedById String
+  requestedBy   User            @relation(fields: [requestedById], references: [id], onDelete: Restrict)
+  channel       DeliveryChannel
+  status        DeliveryStatus  @default(QUEUED)
+  recipient     String
+  message       String
+  attempts      Int             @default(0)
+  providerId    String?
+  error         String?
+  availableAt   DateTime        @default(now())
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@index([status, availableAt])
+  @@index([invoiceId, createdAt])
+  @@index([requestedById])
+}
