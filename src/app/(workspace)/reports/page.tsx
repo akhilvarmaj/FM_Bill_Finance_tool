@@ -1,0 +1,23 @@
+import { redirect } from "next/navigation";
+import { currentUser } from "@/lib/auth/http";
+import { can } from "@/lib/auth/policy";
+import { formatMoney } from "@/lib/billing/rules";
+import { presets } from "@/lib/reports/period";
+import { salesReport } from "@/lib/reports/service";
+import { ReportChart } from "@/components/report-chart";
+import { RecordForm } from "@/components/record-form";
+import { Download } from "lucide-react";
+export default async function ReportsPage({ searchParams }: { searchParams: Promise<{ period?: string; from?: string; to?: string; year?: string }> }) {
+  const user = await currentUser(); if (!user || !(["reports.sales", "reports.courses", "reports.payments", "reports.marketing"] as const).some(permission => can(user, permission))) redirect("/account");
+  const report = await salesReport(await searchParams);
+  const exportQuery = new URLSearchParams({ period: "Custom", from: report.range.from.toISOString().slice(0, 10), to: report.range.to.toISOString().slice(0, 10) }).toString();
+  return <><h1>Reports</h1><form className="filter-bar"><label className="field">Period<select name="period" defaultValue={report.range.period}>{presets.map(value => <option key={value}>{value}</option>)}</select></label><label className="field">Year<input name="year" type="number" min="2000" max="2100" defaultValue={report.range.from.getUTCFullYear()} /></label><label className="field">From<input name="from" type="date" defaultValue={report.range.from.toISOString().slice(0, 10)} /></label><label className="field">To<input name="to" type="date" defaultValue={report.range.to.toISOString().slice(0, 10)} /></label><button className="secondary-button">Apply</button></form>
+    {can(user, "reports.sales") && <><div className="metrics">{[{ label: "Invoiced sales", value: formatMoney(report.sales) }, { label: "Students enrolled", value: String(report.students) }, { label: "Outstanding on selected invoices", value: formatMoney(report.outstanding) }, { label: "Payments received", value: formatMoney(report.collected) }, { label: "Monthly payments", value: formatMoney(report.recurring) }, { label: "One-time payments", value: formatMoney(report.oneTime) }, { label: "Invoice count", value: String(report.count) }, { label: "Average invoice", value: formatMoney(report.average) }].map(item => <div className="metric" key={item.label}><span>{item.label}</span><strong className="report-value">{item.value}</strong></div>)}</div>
+    <section className="data-section"><h2>Monthly invoiced sales</h2><ReportChart data={report.monthly} /></section></>}
+    {can(user, "reports.courses") && <section className="data-section"><h2>Course performance</h2><div className="table-scroll"><table><thead><tr><th>Course</th><th>Billed students</th><th>Sales</th><th>Average per billed student</th></tr></thead><tbody>{report.courses.map(course => <tr key={course.name}><td>{course.name}</td><td>{course.students}</td><td>{formatMoney(course.revenue)}</td><td>{formatMoney(course.average)}</td></tr>)}</tbody></table></div></section>}
+    {can(user, "reports.payments") && <section className="data-section"><h2>Payment methods</h2><div className="table-scroll"><table><thead><tr><th>Mode</th><th>Transactions</th><th>Amount</th></tr></thead><tbody>{report.methods.map(method => <tr key={method.mode}><td>{method.mode}</td><td>{method.count}</td><td>{formatMoney(method.amount)}</td></tr>)}</tbody></table></div></section>}
+    {can(user, "reports.marketing") && <section className="data-section"><h2>Marketing</h2><p>Spend: {formatMoney(report.spend)} · Spend / sales: {report.spendPercent.toFixed(1)}%</p></section>}
+    <div className="filter-bar">{(["sales", "courses", "payments", "marketing"] as const).filter(kind => can(user, `reports.${kind}`)).map(kind => <a className="secondary-button" key={kind} href={`/api/reports/${kind}?${exportQuery}`}><Download size={17} />{kind[0].toUpperCase() + kind.slice(1)} CSV</a>)}</div>
+    {can(user, "reports.sales") && <section className="data-section"><h2>Target achievement</h2><p>{formatMoney(report.sales)} / {formatMoney(report.target)} · {report.achievement.toFixed(1)}%</p><progress value={Math.min(100, report.achievement)} max={100} className="w-full" /></section>}
+    {user.role === "ADMIN" && <section className="data-section"><h2>Set monthly target</h2><RecordForm kind="target" endpoint="/api/management/target" destination="/reports" fields={[{ name: "month", label: "Month", type: "month", value: new Date().toISOString().slice(0, 7), required: true }, { name: "amount", label: "Target (INR)", type: "number", required: true }]} /></section>}</>;
+}

@@ -7,6 +7,8 @@ const manrope = Manrope({
   subsets: ["latin"],
 });
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: { default: "Future Minds Billing", template: "%s | Future Minds Billing" },
   description: "Future Minds student accounts and billing. Robotics, AI and Coding.",
