@@ -1,0 +1,7 @@
+{
+  "name": "Future Minds Billing",
+  "description": "Student accounts and billing management tool for Future Minds robotics, AI, and coding institute.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

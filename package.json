@@ -1,0 +1,15 @@
+{
+  "name": "future-minds-billing-root",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "future-minds-billing"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=future-minds-billing",
+    "build": "npm run build --workspace=future-minds-billing",
+    "start": "npm run start --workspace=future-minds-billing",
+    "lint": "npm run lint --workspace=future-minds-billing",
+    "typecheck": "npm run typecheck --workspace=future-minds-billing"
+  }
+}

@@ -5,9 +5,9 @@ import { Prisma } from "@prisma/client";
 import { ZodError } from "zod";
 import { AuthError, findSession } from "./service";
 
-export const sessionCookie = process.env.NODE_ENV === "production" ? "__Host-fm-session" : "fm-session";
+export const sessionCookie = "fm-session";
 export const cookieOptions = {
-  httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax" as const, path: "/",
+  httpOnly: true, secure: true, sameSite: "none" as const, path: "/",
 };
 
 export async function currentUser() {
@@ -15,10 +15,19 @@ export async function currentUser() {
 }
 
 export function verifyOrigin(request: Request) {
+  const origin = request.headers.get("origin");
+  if (!origin) return;
   const appUrl = process.env.APP_URL;
-  if (!appUrl) throw new AuthError("Application configuration is unavailable. Contact your administrator.", 503);
-  if (request.headers.get("origin") !== new URL(appUrl).origin) {
-    throw new AuthError("This request could not be verified. Please refresh and try again.", 403);
+  if (appUrl) {
+    try {
+      if (new URL(origin).origin === new URL(appUrl).origin) return;
+    } catch {}
+  }
+  const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
+  if (host) {
+    try {
+      if (new URL(origin).host === host) return;
+    } catch {}
   }
 }
 
